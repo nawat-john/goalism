@@ -1,0 +1,40 @@
+{
+  "name": "@study-planner/database",
+  "version": "0.0.0",
+  "description": "StudyPlanner data layer: Prisma schema, migrations, seed, and generated client.",
+  "main": "./generated/client/index.js",
+  "types": "./generated/client/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./generated/client/index.d.ts",
+      "default": "./generated/client/index.js"
+    }
+  },
+  "files": [
+    "generated",
+    "prisma"
+  ],
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "tsx prisma/seed.ts",
+    "studio": "prisma studio",
+    "build": "prisma generate",
+    "prepare": "prisma generate"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.2.1",
+    "fractional-indexing": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "argon2": "^0.41.1",
+    "prisma": "^6.2.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

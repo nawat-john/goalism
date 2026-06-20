@@ -1,0 +1,8 @@
+# Backend is a small pnpm workspace: the Nest app (root) plus the publishable
+# shared contract package under packages/*. Shared is linked live via workspace:*
+# and built automatically on install (its `prepare` script).
+packages:
+  - "packages/*"
+allowBuilds:
+  '@prisma/client': true
+  argon2: true

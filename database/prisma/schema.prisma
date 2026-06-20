@@ -1,0 +1,178 @@
+// StudyPlanner Prisma schema — see study-planner-design.md §5
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GoalStatus {
+  active
+  achieved
+  on_hold
+  archived
+}
+
+enum CardPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum MilestoneType {
+  milestone
+  deadline
+  event
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String         @map("password_hash")
+  displayName   String         @map("display_name")
+  avatarUrl     String?        @map("avatar_url")
+  goals         Goal[]
+  boards        Board[]
+  labels        Label[]
+  milestones    Milestone[]
+  refreshTokens RefreshToken[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Goal {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      GoalStatus  @default(active)
+  targetDate  DateTime?   @map("target_date") @db.Date
+  progress    Int         @default(0)
+  color       String?
+  boards      Board[]
+  milestones  Milestone[]
+  cards       Card[]
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model Board {
+  id          String        @id @default(uuid())
+  userId      String        @map("user_id")
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goalId      String?       @map("goal_id")
+  goal        Goal?         @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  title       String
+  description String?
+  position    String
+  columns     BoardColumn[]
+  cards       Card[]
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([goalId])
+  @@map("boards")
+}
+
+model BoardColumn {
+  id        String   @id @default(uuid())
+  boardId   String   @map("board_id")
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title     String
+  position  String
+  wipLimit  Int?     @map("wip_limit")
+  cards     Card[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([boardId])
+  @@map("board_columns")
+}
+
+model Card {
+  id          String       @id @default(uuid())
+  columnId    String       @map("column_id")
+  column      BoardColumn  @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  boardId     String       @map("board_id")
+  board       Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  goalId      String?      @map("goal_id")
+  goal        Goal?        @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  title       String
+  description String?
+  position    String
+  startDate   DateTime?    @map("start_date")
+  dueDate     DateTime?    @map("due_date")
+  priority    CardPriority @default(medium)
+  isCompleted Boolean      @default(false) @map("is_completed")
+  completedAt DateTime?    @map("completed_at")
+  labels      CardLabel[]
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@index([columnId])
+  @@index([boardId])
+  @@index([dueDate])
+  @@map("cards")
+}
+
+model Label {
+  id     String      @id @default(uuid())
+  userId String      @map("user_id")
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  color  String
+  cards  CardLabel[]
+
+  @@map("labels")
+}
+
+model CardLabel {
+  cardId  String @map("card_id")
+  labelId String @map("label_id")
+  card    Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([cardId, labelId])
+  @@map("card_labels")
+}
+
+model Milestone {
+  id        String        @id @default(uuid())
+  userId    String        @map("user_id")
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goalId    String?       @map("goal_id")
+  goal      Goal?         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  title     String
+  type      MilestoneType @default(milestone)
+  date      DateTime
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([date])
+  @@map("milestones")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
