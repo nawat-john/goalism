@@ -29,9 +29,11 @@ jobs:
           pnpm migrate:deploy
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-      # 2) Deploy the backend to staging — fill in once a host is chosen
-      #    (Fly.io/Render/etc., matching design §10.4's production job).
-      # - name: backend — deploy
-      #   run: echo "TODO: flyctl deploy / render deploy hook / etc."
-      #   env:
-      #     STAGING_API_TOKEN: ${{ secrets.STAGING_FLY_API_TOKEN }}
+      # 2) Deploy the backend to the staging Fly app (separate app + token from
+      #    production; mirrors .github/workflows/deploy.yml). Create it once with
+      #    `fly apps create studyplanner-api-staging` and set its secrets.
+      - name: backend — deploy to Fly.io (staging)
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --app studyplanner-api-staging
+        env:
+          FLY_API_TOKEN: ${{ secrets.STAGING_FLY_API_TOKEN }}

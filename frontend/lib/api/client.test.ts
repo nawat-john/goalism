@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiFetch, ApiError } from "./client";
+import { apiFetch, ApiError, refreshSession } from "./client";
 import { useAuthStore } from "../auth/token-store";
 
 const API = "http://localhost:3001/api/v1";
@@ -67,6 +67,39 @@ describe("apiFetch", () => {
     await expect(apiFetch("/goals")).rejects.toBeInstanceOf(ApiError);
     expect(useAuthStore.getState().status).toBe("unauthenticated");
     expect(useAuthStore.getState().accessToken).toBeNull();
+  });
+
+  it("does not clobber a session established while a boot refresh is in flight", async () => {
+    // Boot rehydrate state: no token yet, status "loading".
+    let resolveRefresh: (r: Response) => void = () => {};
+    const fetchMock = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Kick off the cookie-less boot refresh (will 401).
+    const refreshDone = refreshSession();
+
+    // User registers before the refresh lands: a real session is set.
+    const user = {
+      id: "u1",
+      email: "demo@studyplanner.dev",
+      displayName: "Demo",
+      avatarUrl: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    useAuthStore.getState().setSession("real-token", user);
+
+    // Now the boot refresh's 401 finally arrives.
+    resolveRefresh(jsonResponse(401, { error: { code: "UNAUTHENTICATED" } }));
+    await refreshDone;
+
+    // The just-authenticated session must survive.
+    expect(useAuthStore.getState().status).toBe("authenticated");
+    expect(useAuthStore.getState().accessToken).toBe("real-token");
   });
 
   it("surfaces the error envelope as an ApiError", async () => {

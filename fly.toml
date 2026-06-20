@@ -1,0 +1,41 @@
+# Fly.io config for the StudyPlanner backend (design §10.1 — Fly.io is the
+# recommended host). The frontend deploys to Vercel via its git integration and
+# the database is managed Postgres (Neon/Supabase) — neither is described here.
+#
+# First-time setup (run from the repo root):
+#   fly launch --no-deploy --copy-config        # or `fly apps create studyplanner-api`
+#   fly secrets set DATABASE_URL=... JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=... \
+#                   CORS_ORIGIN=https://app.studyplanner.example \
+#                   COOKIE_SAMESITE=none SENTRY_DSN=...
+# Deploys are automated by .github/workflows/deploy.yml (migrate → deploy).
+
+app = "studyplanner-api"
+# Singapore is Fly's closest region to Thailand (the product's primary audience).
+primary_region = "sin"
+
+[build]
+  dockerfile = "backend/Dockerfile"
+
+# Non-secret config only. Secrets (DATABASE_URL, JWT_*, CORS_ORIGIN,
+# COOKIE_SAMESITE, SENTRY_DSN) are set with `fly secrets set` — never in this file.
+[env]
+  NODE_ENV = "production"
+  PORT = "3001"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/v1/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

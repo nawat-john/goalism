@@ -26,12 +26,23 @@ export interface SessionResponse {
 let refreshPromise: Promise<string | null> | null = null;
 
 async function performRefresh(): Promise<string | null> {
+  // Snapshot the session this refresh is acting on. If it changes while the
+  // request is in flight, someone else established a newer session and we must
+  // not clobber it on failure.
+  const tokenAtStart = useAuthStore.getState().accessToken;
   const res = await fetch(`${API_URL}/auth/refresh`, {
     method: "POST",
     credentials: "include",
   });
   if (!res.ok) {
-    useAuthStore.getState().clear();
+    // Only clear if the session is still the one we started with. On the
+    // /login and /register pages the boot rehydrate fires a cookie-less
+    // /auth/refresh that 401s, but the user may log in/register
+    // (setSession → "authenticated") before that 401 lands — clearing then
+    // would bounce a just-authenticated user back to /login.
+    if (useAuthStore.getState().accessToken === tokenAtStart) {
+      useAuthStore.getState().clear();
+    }
     return null;
   }
   const data = (await res.json()) as SessionResponse;

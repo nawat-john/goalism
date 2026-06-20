@@ -81,10 +81,17 @@ export class AuthController {
   /** Set the rotated refresh cookie and return the access token + public user. */
   private respondWithSession(res: Response, session: IssuedSession) {
     const isProd = this.config.get<string>("NODE_ENV") === "production";
+    // Cross-site deploys (frontend on Vercel, API on Fly with unrelated
+    // registrable domains) need SameSite=None so the cookie rides along on the
+    // cross-origin /auth/refresh call; SameSite=None requires Secure. Defaults
+    // to "lax", which is correct for same-site subdomain deploys and local dev.
+    const sameSite = (
+      this.config.get<string>("COOKIE_SAMESITE") ?? "lax"
+    ).toLowerCase() as "lax" | "strict" | "none";
     res.cookie(REFRESH_COOKIE, session.refreshToken, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: "lax",
+      secure: isProd || sameSite === "none",
+      sameSite,
       path: REFRESH_COOKIE_PATH,
       maxAge: parseDurationMs(
         this.config.get<string>("JWT_REFRESH_TTL") ?? "30d",

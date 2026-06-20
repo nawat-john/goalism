@@ -1,0 +1,47 @@
+name: DB backup (production)
+
+# Scheduled logical backup of the production database. This is a belt-and-braces
+# layer ON TOP OF the managed provider's own backups/PITR (Neon/Supabase both
+# retain automatic backups — see DEPLOY.md); it gives a portable, provider-
+# independent dump you can restore anywhere with `psql`/`pg_restore`.
+#
+# Daily at 18:00 UTC (≈01:00 Asia/Bangkok). Also runnable on demand.
+# Requires the PROD_DATABASE_URL secret (same one the deploy workflow uses).
+#
+# NOTE: GitHub artifacts are capped (90-day max retention) and not a long-term
+# archive — for real disaster recovery, push the dump to object storage
+# (Cloudflare R2 / S3) instead of / in addition to uploading it here. See DEPLOY.md.
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: pg_dump → gzip
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p backups
+          FILE="backups/studyplanner-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+          # Use the official postgres:16 image so pg_dump matches the server major
+          # version (ubuntu-latest's bundled client can lag behind).
+          docker run --rm -e DATABASE_URL postgres:16 \
+            pg_dump --no-owner --no-privileges --format=plain "$DATABASE_URL" \
+            | gzip > "$FILE"
+          echo "Wrote $FILE ($(du -h "$FILE" | cut -f1))"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: backups/*.sql.gz
+          retention-days: 30

@@ -1,0 +1,26 @@
+# Build context is the repo root (see backend/Dockerfile). Keep it lean and
+# force a clean, linux-native install inside the image rather than copying host
+# artifacts (node_modules with wrong-platform binaries, stale builds, secrets).
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/playwright-report
+**/test-results
+**/.turbo
+**/*.log
+
+# Never ship env files into an image (keep the *.example templates).
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
+
+# Regenerated inside the image by `prisma generate`.
+database/generated
+
+# Not needed for the backend image (frontend deploys via Vercel).
+frontend
+
+.git
+.github

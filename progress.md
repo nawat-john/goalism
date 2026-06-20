@@ -3,7 +3,11 @@
 Tracking implementation against the roadmap in `study-planner-design.md` (§12).
 Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 
-> Current state: **Phase 4 complete** — timeline + milestones are live (see details below the
+> Current state: **Phase 7 complete (code/config)** — all deploy artifacts are in the repo;
+> what's left is infra provisioning + secrets, documented in `DEPLOY.md` (see the Phase 7 block
+> further down). The phase-by-phase recap below is kept in build order.
+>
+> Earlier recap — **Phase 4 complete** — timeline + milestones are live (see details below the
 > Phase 3 recap). Phase 3 recap: board drag-and-drop is live: `PATCH /cards/:id/move`
 > (ownership-scoped column lookup, single-row update, denormalized `boardId` kept consistent),
 > a dnd-kit board (`PointerSensor`, `closestCenter`, `DragOverlay`, per-column `SortableContext`)
@@ -168,10 +172,52 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 > consecutive runs against both a dev server and a production build. Both apps build/lint/typecheck
 > clean.
 >
-> Next: Phase 7 (launch — backend Dockerfile, deploy workflow, Vercel/Fly.io/Render, DB hosting,
-> observability/uptime monitoring, DB backups). Phase 6 leaves the staging deploy workflow as an
-> unfilled skeleton (no host chosen yet) and Sentry/staging DSNs unconfigured — both are real
-> infra decisions for whoever picks up Phase 7, not just code.
+> **Phase 7 complete (code/config artifacts)** — launch. Every deployable artifact is now in
+> the repo; what remains is provisioning real infra + setting secrets in the respective consoles,
+> documented end-to-end in the new `DEPLOY.md` runbook. Hosts chosen per design §10.1: **Vercel**
+> (frontend) · **Fly.io** (backend) · **Neon/Supabase** (Postgres).
+>
+> - **Backend Dockerfile** (`backend/Dockerfile`, multi-stage) + `.dockerignore`. Non-obvious bit:
+>   the build context is the **repo root**, not `backend/`, because the API links the sibling
+>   `database/` project (`file:../database`, the generated Prisma client) and `backend/packages/shared`
+>   (`workspace:*`) — the design doc's example Dockerfile assumed a single pnpm workspace, which this
+>   repo is *not*. So the build stages database first (`pnpm install && prisma generate`), then
+>   backend (`pnpm install` builds shared via its prepare + links database, then `nest build`), prunes
+>   dev deps in both, and the runtime image preserves the `/app/database` + `/app/backend` layout so
+>   the relative links resolve. Runtime is `node:22-slim` + `openssl` (Prisma engine needs it);
+>   migrations run in CI, not in the container.
+> - **Fly config** (`fly.toml`, repo root) — `primary_region = "sin"` (closest to Thailand),
+>   `force_https`, `/api/v1/health` checks, secrets via `fly secrets set` (never in the file).
+> - **Production deploy workflow** (`.github/workflows/deploy.yml`) — gated on a successful CI run on
+>   `main` (`workflow_run` + `conclusion == 'success'`), then migrate prod DB → `flyctl deploy`, in
+>   that order (backward-compatible migrations ship before new code). Frontend has no job — Vercel
+>   auto-deploys via git integration. Filled in the **staging** skeleton to match (deploys to a
+>   separate `studyplanner-api-staging` Fly app).
+> - **Vercel config** (`frontend/vercel.json`) + the documented gotcha that the frontend's
+>   `file:../backend/packages/shared` dep requires Vercel's "include files outside the root directory"
+>   setting (Next transpiles shared's TS source directly via `transpilePackages`, so no separate build).
+> - **DB backup** (`.github/workflows/db-backup.yml`) — daily `pg_dump | gzip` via the `postgres:16`
+>   image (matches server major), uploaded as a 30-day artifact, layered on top of the provider's PITR;
+>   documented upgrade path to R2/S3 for long-term retention.
+> - **Observability/uptime/HSTS** documented in `DEPLOY.md` §5/§7: Sentry (FE+BE) already wired from
+>   Phase 6 (no-op until DSN set), external monitor → `/api/v1/health`, and HSTS (helmet default +
+>   `force_https` + CSP `upgrade-insecure-requests`) — the §11 checklist's last "HTTPS+HSTS" item,
+>   only meaningful now that a TLS-terminating host is in the picture.
+> - **Production env templates** (`backend/.env.production.example`, `frontend/.env.production.example`).
+>
+> **One real launch-blocker fixed in app code, not just config:** the refresh cookie was hardcoded
+> `SameSite=Lax`, which a browser will not send on the cross-site `/auth/refresh` call when the
+> frontend (Vercel) and API (Fly) are on different registrable domains (`*.vercel.app` + `*.fly.dev`) —
+> login would work but every reload would silently log the user out. Made it env-driven
+> (`COOKIE_SAMESITE`, default `lax`; code forces `Secure` when set to `none`); `lax` still correct for
+> same-site subdomain deploys and local dev. Backend lint/typecheck/build clean; the auth e2e only
+> asserts `HttpOnly`/`Path`, which the default path preserves.
+>
+> **Not done here (genuinely requires consoles/accounts, not code):** creating the Neon DB, Fly app,
+> and Vercel project; setting the GitHub/Fly/Vercel secrets; wiring Sentry DSNs and an uptime monitor;
+> rehearsing a restore. All are enumerated as a go-live checklist in `DEPLOY.md` §8. The Dockerfile was
+> **not** built/run in this environment (no Docker available here) — validated by review against the
+> real dependency graph; smoke-test command is in `DEPLOY.md` §2.
 
 ---
 
@@ -248,10 +294,18 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
       deploy-time concern deferred to Phase 7
 
 ## Phase 7 — Launch
-- [ ] Backend Dockerfile (multi-stage)
-- [ ] Deploy workflow (`.github/workflows/deploy.yml`): migrate → deploy
-- [ ] Frontend on Vercel
-- [ ] Backend on Fly.io / Render
-- [ ] Database on Neon / Supabase
-- [ ] Observability + uptime monitoring
-- [ ] DB backup configured
+- [x] Backend Dockerfile (multi-stage) — `backend/Dockerfile` + `.dockerignore` (repo-root context)
+- [x] Deploy workflow (`.github/workflows/deploy.yml`): migrate → deploy (gated on green CI);
+      staging workflow completed to match
+- [x] Frontend on Vercel — `frontend/vercel.json` + provisioning steps in `DEPLOY.md` §3
+- [x] Backend on Fly.io — `fly.toml`; provisioning + secrets in `DEPLOY.md` §2
+- [~] Database on Neon / Supabase — `migrate:deploy` wired into both deploy workflows; actual
+      DB provisioning is a console step (`DEPLOY.md` §1)
+- [x] Observability + uptime monitoring — Sentry FE+BE (Phase 6) + health-check monitor
+      (`DEPLOY.md` §5); DSN/monitor setup is a console step
+- [x] DB backup configured — `.github/workflows/db-backup.yml` (daily `pg_dump`) + provider PITR
+      (`DEPLOY.md` §6)
+
+> Remaining for go-live is infra provisioning + secrets only (no code) — see the `DEPLOY.md` §8
+> checklist. Also fixed a real cross-site launch bug: `COOKIE_SAMESITE` env (refresh cookie was
+> hardcoded `SameSite=Lax`, which breaks cross-domain Vercel↔Fly refresh).

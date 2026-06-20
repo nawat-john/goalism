@@ -1,0 +1,59 @@
+name: Deploy (production)
+
+# Production deploy (design §10.4). Runs ONLY after the CI workflow succeeds on
+# main, so we never migrate/deploy a red build. Order is load-bearing: migrate
+# the production DB FIRST (migrations are written backward-compatible so old code
+# keeps working), THEN roll out the new backend image. The frontend deploys
+# itself via Vercel's git integration — no job here.
+#
+# Required GitHub secrets (Settings → Secrets → Actions, ideally on a
+# `production` environment with required reviewers):
+#   PROD_DATABASE_URL   — Neon/Supabase connection string (with sslmode=require)
+#   FLY_API_TOKEN       — `fly tokens create deploy` (scoped deploy token)
+# Backend runtime secrets (JWT_*, CORS_ORIGIN, COOKIE_SAMESITE, SENTRY_DSN) live
+# in Fly via `fly secrets set`, not here. See DEPLOY.md.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+# Never run two production deploys at once.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  migrate-and-deploy:
+    # workflow_run fires on success AND failure — guard on conclusion. (A manual
+    # workflow_dispatch has no workflow_run payload, so allow that through too.)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      # 1) Migrate the production DB before the new code ships.
+      - name: database — install + generate + migrate (production DB)
+        working-directory: database
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm generate
+          pnpm migrate:deploy
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+
+      # 2) Deploy the backend image to Fly (build context = repo root, per fly.toml).
+      - name: backend — deploy to Fly.io
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
