@@ -1,3 +1,6 @@
+import { initSentry } from "./sentry";
+initSentry();
+
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import helmet from "helmet";

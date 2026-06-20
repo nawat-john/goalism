@@ -116,6 +116,18 @@ export function AiPlanPanel({ goal }: { goal: Goal }) {
             placeholder="AIza…"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
+          <span className="block text-xs text-muted-foreground">
+            For safety, restrict this key by HTTP referrer in{" "}
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              Google AI Studio
+            </a>
+            .
+          </span>
         </label>
         <label className="space-y-1 text-sm">
           <span className="text-muted-foreground">Mode</span>

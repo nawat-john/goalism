@@ -100,9 +100,78 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 > `pnpm-workspace.yaml` (frontend) build-script approvals (`@google/genai`, `protobufjs`) were
 > set to `true` — both are pure-JS SDK/codegen postinstalls, no native compilation.
 >
-> Next: Phase 6 (hardening — throttler/helmet/CORS/CSP are already partially in place from
-> earlier phases; remaining: strict CSP for `connect-src`, Sentry, Playwright e2e, coverage
-> thresholds, staging env, security checklist review).
+> **Phase 6 complete** — hardening. Throttler (global `ThrottlerGuard`, 100 req/60s, no
+> `@SkipThrottle` anywhere so it covers every endpoint), `helmet()`, pino redact
+> (`x-user-gemini-key`/`authorization`/`req.body.password`), and CORS restricted to
+> `CORS_ORIGIN` were already in place from earlier phases. This phase added the rest:
+>
+> - **Strict, nonce-based CSP** (`frontend/middleware.ts`) — `helmet()` only covers API
+>   responses, so the policy that actually constrains the browser has to live in Next's
+>   middleware. `script-src` is `'self' 'nonce-…' 'strict-dynamic'`, `connect-src` is scoped to
+>   our own API origin + `generativelanguage.googleapis.com` (+ the Sentry DSN's origin once
+>   configured). **Found and fixed a real bug while verifying this**: `next dev`'s webpack HMR
+>   runtime evaluates code via `eval()`, which a strict CSP blocks outright — that silently broke
+>   hydration in dev mode (forms fell back to native HTML submission with no console error, which
+>   looked exactly like a broken click handler). Fixed by adding `'unsafe-eval'` only when
+>   `NODE_ENV !== "production"`; verified the production CSP header has no `unsafe-eval` by
+>   building and starting a prod bundle and inspecting the response header directly.
+> - **Sentry, backend + frontend**, both no-op unless a DSN is configured (no infra is
+>   provisioned yet — design intentionally defers that to Phase 7/launch). Backend:
+>   `src/sentry.ts` inits from `SENTRY_DSN` with a `beforeSend` that strips
+>   `x-user-gemini-key`/`authorization`/`cookie` headers and `password`/`x-user-gemini-key` body
+>   fields (mirrors the pino redact list); `AllExceptionsFilter` calls `Sentry.captureException`
+>   for the unexpected-error branch only (HttpExceptions are expected control flow, not noise).
+>   Frontend: `instrumentation-client.ts` + `instrumentation.ts`, both gated on
+>   `NEXT_PUBLIC_SENTRY_DSN`, with a `beforeSend`/`beforeBreadcrumb` regex scrub for the same two
+>   fields as defense-in-depth (the Gemini key is never deliberately attached to Sentry context —
+>   design §6.3 keeps it client-memory/sessionStorage-only — but nothing stops a future change
+>   from doing so by accident).
+> - **Playwright e2e suite** (`frontend/e2e/golden-path.spec.ts` + `playwright.config.ts`):
+>   the design roadmap's named golden path — register → create a goal → add a board → drag a
+>   card between board columns (via real OS-level `page.mouse` events so dnd-kit's
+>   `PointerSensor` actually activates) → reload and confirm the move persisted. Registers a
+>   fresh, timestamp-unique user each run so it doesn't depend on seeded demo data. The config
+>   deliberately does **not** spawn its own dev server — it assumes the app is already running
+>   (`pnpm dev` locally, or CI's explicit build+start step before `pnpm e2e`), matching
+>   `.github/workflows/ci.yml`'s `e2e` job exactly.
+> - **Coverage thresholds**: added `test:cov` to both apps (`jest --coverage`,
+>   `vitest run --coverage`) since CI's `e2e` job already referenced `pnpm test:cov` without the
+>   script existing. Backend: global thresholds (85/60/70/85 stmts/branches/funcs/lines) set a
+>   few points below the real baseline (~87/67/75/87), `main.ts` and `sentry.ts` excluded as
+>   init-only side-effect modules. Frontend: scoped to the three modules that actually carry
+>   dedicated unit tests (`parse-plan.ts`, `key-store.ts`, `client.ts`) rather than all of `lib/`
+>   — `resources.ts`'s thin API wrappers are exercised by the e2e suite instead, consistent with
+>   the project's existing convention (per Phase 4/5 notes) of not separately unit-testing thin
+>   wrappers. Also added `@vitest/coverage-v8` (missing devDependency) and excluded `e2e/**` from
+>   Vitest's own test discovery (it was trying to run the Playwright specs as Vitest tests).
+> - **API key restriction hint**: `AiPlanPanel` now links to Google AI Studio's key page with a
+>   one-line nudge to restrict the key by HTTP referrer (design §11's last checklist item).
+> - **Security checklist (design §11) reviewed line by line** against the actual code (not just
+>   assumed from earlier phases): argon2 hashing ✓, short-lived in-memory access token + rotating
+>   httpOnly/`sameSite=lax`/`secure`-in-prod refresh cookie ✓, CORS origin allowlist ✓, zod
+>   validation on every endpoint ✓, throttler on every endpoint ✓, helmet+CSP ✓ (with the dev-mode
+>   fix above), user-scoped queries throughout (carried by every prior phase's tests) ✓, Gemini
+>   key never in the DB/logs/Sentry ✓, AI output rendered as plain text only (no
+>   `dangerouslySetInnerHTML` anywhere in the codebase) ✓, log/error-reporter scrubbing ✓, API key
+>   restriction hint ✓. The one item that's deploy-time rather than application-code (**HTTPS
+>   everywhere + HSTS**) is deferred to Phase 7: `helmet()`'s HSTS header is on by default, but
+>   it's only meaningful once a reverse proxy/host actually terminates TLS in front of the app.
+> - **Staging environment**: `.env.staging.example` for all three projects and
+>   `.github/workflows/deploy-staging.yml` (manual `workflow_dispatch`, migrates the staging DB)
+>   exist, but no staging infra is actually provisioned — this is intentionally a skeleton to wire
+>   up real secrets/hosts against in Phase 7, not a live environment.
+>
+> Backend: 46 tests passing, coverage gate passing (87.0% stmts / 66.7% branches / 75.2% funcs /
+> 87.3% lines vs. 85/60/70/85 thresholds). Frontend: 15 unit tests passing, coverage gate passing
+> on the three scoped modules (97.0% stmts / 88.9% branches / 100% funcs / 97.0% lines vs.
+> 90/75/90/90 thresholds); 1 new Playwright e2e test passing, verified stable across multiple
+> consecutive runs against both a dev server and a production build. Both apps build/lint/typecheck
+> clean.
+>
+> Next: Phase 7 (launch — backend Dockerfile, deploy workflow, Vercel/Fly.io/Render, DB hosting,
+> observability/uptime monitoring, DB backups). Phase 6 leaves the staging deploy workflow as an
+> unfilled skeleton (no host chosen yet) and Sentry/staging DSNs unconfigured — both are real
+> infra decisions for whoever picks up Phase 7, not just code.
 
 ---
 
@@ -167,15 +236,16 @@ Status legend: `[ ]` not started · `[~]` in progress · `[x]` done.
 - [x] Tests: plan parser unit, e2e with mocked Gemini
 
 ## Phase 6 — Hardening
-- [ ] `@nestjs/throttler` rate limiting
-- [ ] `helmet` + strict CSP (connect-src: own API + generativelanguage.googleapis.com)
-- [ ] CORS restricted to frontend origin
-- [ ] pino structured logging with sensitive-field scrubbing
-- [ ] Sentry (FE + BE)
-- [ ] Playwright e2e suite (login → create goal → drag card)
-- [ ] Coverage thresholds in CI
-- [ ] Staging environment (separate DB/secrets)
-- [ ] Security checklist (design §11) reviewed
+- [x] `@nestjs/throttler` rate limiting
+- [x] `helmet` + strict CSP (connect-src: own API + generativelanguage.googleapis.com)
+- [x] CORS restricted to frontend origin
+- [x] pino structured logging with sensitive-field scrubbing
+- [x] Sentry (FE + BE)
+- [x] Playwright e2e suite (login → create goal → drag card)
+- [x] Coverage thresholds in CI
+- [x] Staging environment (separate DB/secrets) — skeleton only, no infra provisioned yet
+- [x] Security checklist (design §11) reviewed — all items done in code; HTTPS/HSTS is a
+      deploy-time concern deferred to Phase 7
 
 ## Phase 7 — Launch
 - [ ] Backend Dockerfile (multi-stage)

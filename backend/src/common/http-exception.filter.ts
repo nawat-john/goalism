@@ -7,6 +7,7 @@ import {
   Logger,
 } from "@nestjs/common";
 import { Response } from "express";
+import * as Sentry from "@sentry/node";
 
 /** Standard error envelope (design §7.3): `{ error: { code, message, details } }`. */
 interface ErrorBody {
@@ -58,6 +59,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else {
       // Non-HTTP errors are unexpected — log the real cause, hide it from clients.
       this.logger.error(exception);
+      Sentry.captureException(exception);
     }
 
     res.status(status).json({ error: body });

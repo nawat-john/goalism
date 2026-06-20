@@ -1,0 +1,37 @@
+name: Deploy (staging)
+
+# Skeleton only (design §10.4/§12 Phase 6 "staging environment"). Manual
+# trigger so it never runs accidentally; every secret below is a placeholder
+# that does not exist in this repo yet — configure them in
+# Settings → Secrets → Actions before the first real run:
+#   STAGING_DATABASE_URL, STAGING_JWT_ACCESS_SECRET, STAGING_JWT_REFRESH_SECRET,
+#   STAGING_FLY_API_TOKEN (or equivalent for whichever host you pick),
+#   STAGING_VERCEL_* (frontend is expected to auto-deploy via its own git
+#   integration once a preview/staging branch exists — see design §10.4).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: database — install + generate + migrate (staging DB)
+        working-directory: database
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm generate
+          pnpm migrate:deploy
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+      # 2) Deploy the backend to staging — fill in once a host is chosen
+      #    (Fly.io/Render/etc., matching design §10.4's production job).
+      # - name: backend — deploy
+      #   run: echo "TODO: flyctl deploy / render deploy hook / etc."
+      #   env:
+      #     STAGING_API_TOKEN: ${{ secrets.STAGING_FLY_API_TOKEN }}

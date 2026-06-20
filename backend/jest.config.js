@@ -14,4 +14,15 @@ module.exports = {
     // ts-jest compiles it to CJS instead of choking on `import` statements.
     "^@study-planner/shared$": "<rootDir>/packages/shared/src/index.ts",
   },
+  collectCoverageFrom: [
+    "src/**/*.ts",
+    "!src/main.ts",
+    "!src/sentry.ts",
+    "!src/**/*.module.ts",
+  ],
+  // Thresholds set a few points below the current baseline (89/66/75/89) so
+  // CI fails on real regressions without being flaky on incidental drift.
+  coverageThreshold: {
+    global: { statements: 85, branches: 60, functions: 70, lines: 85 },
+  },
 };
