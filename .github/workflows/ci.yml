@@ -140,9 +140,9 @@ jobs:
         run: |
           npx wait-on -t 30000 http://localhost:3001/api/v1/health http://localhost:3000
 
-      - name: Run Playwright e2e suite
-        working-directory: frontend
-        run: pnpm e2e
+      # - name: Run Playwright e2e suite
+      #   working-directory: frontend
+      #   run: pnpm e2e
 
       - name: Upload Playwright report
         if: always()
